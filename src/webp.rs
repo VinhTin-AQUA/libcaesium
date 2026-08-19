@@ -10,7 +10,7 @@ use webp::{AnimDecoder, AnimEncoder, AnimFrame, WebPConfig};
 
 use crate::error::CaesiumError;
 use crate::resize::resize_image;
-use crate::utils::orientation_exif_to_inject;
+use crate::utils::rotation_exif_to_preserve;
 use crate::CSParameters;
 
 pub fn compress(input_path: String, output_path: String, parameters: &CSParameters) -> Result<(), CaesiumError> {
@@ -25,7 +25,7 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
         code: 20301,
     })?;
 
-    let compressed_image = compress_in_memory(&input_data, parameters)?;
+    let compressed_image = compress_in_memory(&input_data, parameters, None)?;
 
     let mut output_file = File::create(output_path).map_err(|e| CaesiumError {
         message: e.to_string(),
@@ -39,8 +39,11 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
     Ok(())
 }
 
-pub fn compress_in_memory(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
-    // Metadata is read from the original bytes: the compressed output carries none of it.
+pub fn compress_in_memory(
+    in_file: &[u8],
+    parameters: &CSParameters,
+    source_orientation: Option<u16>,
+) -> Result<Vec<u8>, CaesiumError> {
     let (iccp, exif): (Option<Bytes>, Option<Bytes>) = if parameters.keep_metadata {
         DynImage::from_bytes(in_file.to_vec().into())
             .map_err(|e| CaesiumError {
@@ -49,7 +52,7 @@ pub fn compress_in_memory(in_file: &[u8], parameters: &CSParameters) -> Result<V
             })?
             .map_or((None, None), |dyn_img| (dyn_img.icc_profile(), dyn_img.exif()))
     } else {
-        (None, orientation_exif_to_inject(in_file, parameters))
+        (None, rotation_exif_to_preserve(in_file, parameters, source_orientation))
     };
 
     let must_resize = parameters.width > 0 || parameters.height > 0;

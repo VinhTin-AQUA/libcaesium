@@ -5,8 +5,8 @@ use image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 use img_parts::{DynImage, ImageEXIF, ImageICC};
 
 use crate::error::CaesiumError;
-use crate::utils::{get_filetype_from_memory, get_orientation};
-use crate::{compress_in_memory, CSParameters, SupportedFileTypes};
+use crate::utils::{get_filetype_from_memory, get_orientation, set_exif_orientation};
+use crate::{compress_in_memory_with_rotation, CSParameters, SupportedFileTypes};
 
 pub fn convert_in_memory(
     in_file: Vec<u8>,
@@ -39,10 +39,12 @@ pub fn convert_in_memory(
             code: 10403,
         })?;
 
+    let source_orientation = get_orientation(in_file.as_slice()) as u16;
+    let mut rotation_baked_in = false;
+
     if parameters.keep_metadata {
         if original_file_type == SupportedFileTypes::Jpeg {
-            let orientation = get_orientation(in_file.as_slice());
-            original_image = match orientation {
+            original_image = match source_orientation {
                 2 => original_image.fliph(),
                 3 => original_image.rotate180(),
                 4 => original_image.flipv(),
@@ -51,7 +53,8 @@ pub fn convert_in_memory(
                 7 => original_image.fliph().rotate90(),
                 8 => original_image.rotate270(),
                 _ => original_image,
-            }
+            };
+            rotation_baked_in = source_orientation > 1;
         }
 
         (iccp, exif) = DynImage::from_bytes(Bytes::from(in_file))
@@ -60,6 +63,10 @@ pub fn convert_in_memory(
                 code: 10401,
             })?
             .map_or((None, None), |dimg| (dimg.icc_profile(), dimg.exif()));
+
+        if rotation_baked_in {
+            exif = exif.map(|e| set_exif_orientation(e, 1));
+        }
     }
 
     if format == SupportedFileTypes::Jpeg {
@@ -79,10 +86,13 @@ pub fn convert_in_memory(
             code: 10404,
         })?;
 
-    let compressed_converted_image = compress_in_memory(output_image, parameters).map_err(|e| CaesiumError {
-        message: e.to_string(),
-        code: 10405,
-    })?;
+    let compressed_converted_image =
+        compress_in_memory_with_rotation(output_image, parameters, Some(source_orientation)).map_err(|e| {
+            CaesiumError {
+                message: e.to_string(),
+                code: 10405,
+            }
+        })?;
 
     if parameters.keep_metadata {
         let dyn_image =

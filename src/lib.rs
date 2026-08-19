@@ -85,18 +85,26 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
 ///
 /// * `Result<Vec<u8>, CaesiumError>` - Returns a vector of bytes representing the compressed image if successful, otherwise returns a `CaesiumError`.
 pub fn compress_in_memory(in_file: Vec<u8>, parameters: &CSParameters) -> error::Result<Vec<u8>> {
+    compress_in_memory_with_rotation(in_file, parameters, None)
+}
+
+pub(crate) fn compress_in_memory_with_rotation(
+    in_file: Vec<u8>,
+    parameters: &CSParameters,
+    source_orientation: Option<u16>,
+) -> error::Result<Vec<u8>> {
     let file_type = get_filetype_from_memory(in_file.as_slice());
     let compressed_file = match file_type {
         #[cfg(feature = "jpg")]
-        SupportedFileTypes::Jpeg => jpeg::compress_in_memory(&in_file, parameters)?,
+        SupportedFileTypes::Jpeg => jpeg::compress_in_memory(&in_file, parameters, source_orientation)?,
         #[cfg(feature = "png")]
-        SupportedFileTypes::Png => png::compress_in_memory(&in_file, parameters)?,
+        SupportedFileTypes::Png => png::compress_in_memory(&in_file, parameters, source_orientation)?,
         #[cfg(feature = "gif")]
         SupportedFileTypes::Gif => gif::compress_in_memory(&in_file, parameters)?,
         #[cfg(feature = "webp")]
-        SupportedFileTypes::WebP => webp::compress_in_memory(&in_file, parameters)?,
+        SupportedFileTypes::WebP => webp::compress_in_memory(&in_file, parameters, source_orientation)?,
         #[cfg(feature = "tiff")]
-        SupportedFileTypes::Tiff => tiff::compress_in_memory(&in_file, parameters)?,
+        SupportedFileTypes::Tiff => tiff::compress_in_memory(&in_file, parameters, source_orientation)?,
         _ => {
             return Err(CaesiumError {
                 message: "Format not supported for compression in memory".into(),
@@ -142,10 +150,10 @@ pub fn compress_to_size_in_memory(
             let algorithms = [Lzw, Packbits];
             parameters.tiff.deflate_level = TiffDeflateLevel::Best;
             parameters.tiff.algorithm = Deflate;
-            let mut smallest_result = tiff::compress_in_memory(&in_file, parameters)?;
+            let mut smallest_result = tiff::compress_in_memory(&in_file, parameters, None)?;
             for tc in algorithms {
                 parameters.tiff.algorithm = tc;
-                let result = tiff::compress_in_memory(&in_file, parameters)?;
+                let result = tiff::compress_in_memory(&in_file, parameters, None)?;
                 if result.len() < smallest_result.len() {
                     smallest_result = result;
                 }
@@ -171,12 +179,12 @@ pub fn compress_to_size_in_memory(
                 #[cfg(feature = "jpg")]
                 SupportedFileTypes::Jpeg => {
                     parameters.jpeg.quality = quality;
-                    jpeg::compress_in_memory(&in_file, parameters)?
+                    jpeg::compress_in_memory(&in_file, parameters, None)?
                 }
                 #[cfg(feature = "png")]
                 SupportedFileTypes::Png => {
                     parameters.png.quality = quality;
-                    png::compress_in_memory(&in_file, parameters)?
+                    png::compress_in_memory(&in_file, parameters, None)?
                 }
                 #[cfg(feature = "gif")]
                 SupportedFileTypes::Gif => {
@@ -186,7 +194,7 @@ pub fn compress_to_size_in_memory(
                 #[cfg(feature = "webp")]
                 SupportedFileTypes::WebP => {
                     parameters.webp.quality = quality;
-                    webp::compress_in_memory(&in_file, parameters)?
+                    webp::compress_in_memory(&in_file, parameters, None)?
                 }
                 _ => {
                     return Err(CaesiumError {

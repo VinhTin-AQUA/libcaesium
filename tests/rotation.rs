@@ -1,5 +1,6 @@
 use crate::cleanup::remove_compressed_test_file;
 use caesium::parameters::CSParameters;
+use caesium::SupportedFileTypes;
 use std::path::Path;
 use std::sync::Once;
 
@@ -18,7 +19,6 @@ const WEBP: &str = "tests/samples/orientation.webp";
 const TIFF: &str = "tests/samples/orientation.tif";
 const GIF: &str = "tests/samples/uncompressed_은하.gif";
 
-/// Reads the EXIF orientation tag, returning 1 when the file carries no EXIF at all.
 fn orientation(path: &str) -> u32 {
     let file = std::fs::File::open(path).unwrap();
     let mut reader = std::io::BufReader::new(&file);
@@ -57,8 +57,6 @@ fn rotation_parameters() -> CSParameters {
     pars
 }
 
-/// The fixtures must carry both an orientation and other metadata, otherwise the
-/// "kept the rotation, dropped the rest" assertions below pass vacuously.
 #[test]
 fn fixtures_are_meaningful() {
     for input in [JPEG, PNG, WEBP, TIFF] {
@@ -120,8 +118,6 @@ fn jpeg_resize_keeps_rotation() {
     caesium::compress(String::from(JPEG), String::from(output), &pars).unwrap();
 
     assert_eq!(orientation(output), 6);
-    // Requested dimensions are swapped for side-flipped orientations, so that the image
-    // measures 80x60 once a viewer has applied the rotation.
     let dimensions = image::image_dimensions(output).unwrap();
     assert_eq!(dimensions, (60, 80));
     remove_compressed_test_file(output)
@@ -176,14 +172,10 @@ fn tiff_keeps_rotation() {
     caesium::compress(String::from(TIFF), String::from(output), &pars).unwrap();
 
     assert_eq!(orientation(output), 6);
-    // TIFF re-encoding rebuilds the IFD from scratch, so the source metadata is gone
-    // regardless of the flag; only the orientation is carried across deliberately.
     assert!(!has_tag(output, exif::Tag::Make));
     remove_compressed_test_file(output)
 }
 
-/// `keep_rotation` is the only route to an orientation tag on TIFF: `keep_metadata` has
-/// never had any effect on this format.
 #[test]
 fn tiff_drops_rotation_by_default() {
     let output = "tests/samples/output/rotation_default.tif";
@@ -213,8 +205,6 @@ fn defaults_drop_rotation() {
     }
 }
 
-/// With the full metadata kept the orientation rides along inside it, so `keep_rotation`
-/// must not disturb anything.
 #[test]
 fn keep_metadata_still_keeps_everything() {
     let output = "tests/samples/output/rotation_full_metadata.jpg";
@@ -230,7 +220,6 @@ fn keep_metadata_still_keeps_everything() {
     remove_compressed_test_file(output)
 }
 
-/// GIF carries no orientation metadata, so the flag is a documented no-op there.
 #[test]
 fn gif_ignores_rotation() {
     let with = "tests/samples/output/rotation_on.gif";
@@ -247,4 +236,43 @@ fn gif_ignores_rotation() {
     assert_eq!(std::fs::read(with).unwrap(), std::fs::read(without).unwrap());
     remove_compressed_test_file(with);
     remove_compressed_test_file(without)
+}
+
+#[test]
+fn convert_keeps_rotation() {
+    for (format, output) in [
+        (SupportedFileTypes::Png, "tests/samples/output/rotation_converted.png"),
+        (SupportedFileTypes::WebP, "tests/samples/output/rotation_converted.webp"),
+        (SupportedFileTypes::Tiff, "tests/samples/output/rotation_converted.tif"),
+    ] {
+        initialize(output);
+        let pars = rotation_parameters();
+        caesium::convert(String::from(JPEG), String::from(output), &pars, format).unwrap();
+
+        assert_eq!(orientation(output), 6, "{output} lost its orientation");
+        assert!(!has_tag(output, exif::Tag::Make), "{output} kept other metadata");
+        assert_eq!(image::image_dimensions(output).unwrap(), (160, 120));
+        remove_compressed_test_file(output)
+    }
+}
+
+#[test]
+fn convert_with_metadata_normalizes_rotation() {
+    for (format, output) in [
+        (SupportedFileTypes::Png, "tests/samples/output/rotation_baked.png"),
+        (SupportedFileTypes::WebP, "tests/samples/output/rotation_baked.webp"),
+    ] {
+        initialize(output);
+        let mut pars = CSParameters::new();
+        pars.keep_metadata = true;
+        caesium::convert(String::from(JPEG), String::from(output), &pars, format).unwrap();
+
+        assert_eq!(image::image_dimensions(output).unwrap(), (120, 160));
+        assert_eq!(orientation(output), 1, "{output} would be rotated twice");
+        assert!(
+            has_tag(output, exif::Tag::Make),
+            "{output} lost the rest of its metadata"
+        );
+        remove_compressed_test_file(output)
+    }
 }

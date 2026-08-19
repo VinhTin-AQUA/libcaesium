@@ -13,7 +13,7 @@ use tiff::TiffResult;
 use crate::error::CaesiumError;
 use crate::parameters::TiffCompression;
 use crate::resize::resize_image;
-use crate::utils::get_orientation;
+use crate::utils::rotation_to_preserve;
 use crate::{CSParameters, TiffDeflateLevel};
 
 pub fn compress(input_path: String, output_path: String, parameters: &CSParameters) -> Result<(), CaesiumError> {
@@ -28,7 +28,7 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
         code: 20501,
     })?;
 
-    let compressed_image = compress_in_memory(&input_data, parameters)?;
+    let compressed_image = compress_in_memory(&input_data, parameters, None)?;
 
     let mut output_file = File::create(output_path).map_err(|e| CaesiumError {
         message: e.to_string(),
@@ -42,7 +42,11 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
     Ok(())
 }
 
-pub fn compress_in_memory(in_file: &Vec<u8>, parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
+pub fn compress_in_memory(
+    in_file: &Vec<u8>,
+    parameters: &CSParameters,
+    source_orientation: Option<u16>,
+) -> Result<Vec<u8>, CaesiumError> {
     let decoding_result = match panic::catch_unwind(|| image::load_from_memory_with_format(in_file.as_slice(), Tiff)) {
         Ok(i) => i,
         Err(_) => {
@@ -66,12 +70,7 @@ pub fn compress_in_memory(in_file: &Vec<u8>, parameters: &CSParameters) -> Resul
         image = resize_image(image, parameters.width, parameters.height);
     }
 
-    // Re-encoding drops every source tag, so orientation has to be carried over by hand.
-    // Unlike the other formats there is no `keep_metadata` path to defer to here.
-    let orientation = match (parameters.keep_rotation, get_orientation(in_file)) {
-        (true, o) if o > 1 => Some(o as u16),
-        _ => None,
-    };
+    let orientation = rotation_to_preserve(in_file, parameters, source_orientation);
 
     let color_type = image.color();
     let output_buff = vec![];
@@ -114,9 +113,6 @@ pub fn compress_in_memory(in_file: &Vec<u8>, parameters: &CSParameters) -> Resul
     }
 }
 
-/// Encodes the image, optionally stamping the baseline `Orientation` tag (0x0112) into the
-/// IFD. Uses the two-step encoder because the one-shot `write_image_with_compression` leaves
-/// no place to add a tag.
 fn write_image<W: Write + Seek, C: ColorType<Inner = u8>, D: Compression>(
     encoder: &mut TiffEncoder<W>,
     image: &DynamicImage,

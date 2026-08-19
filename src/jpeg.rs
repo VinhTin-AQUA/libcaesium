@@ -1,7 +1,7 @@
 use crate::error::CaesiumError;
 use crate::parameters::ChromaSubsampling;
 use crate::resize::resize;
-use crate::utils::orientation_exif_to_inject;
+use crate::utils::rotation_exif_to_preserve;
 use crate::CSParameters;
 use bytes::Bytes;
 use image::ImageFormat::Jpeg;
@@ -25,7 +25,7 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
         code: 20100,
     })?;
 
-    let out_buffer = compress_in_memory(&in_file, parameters)?;
+    let out_buffer = compress_in_memory(&in_file, parameters, None)?;
     let mut out_file = File::create(output_path).map_err(|e| CaesiumError {
         message: e.to_string(),
         code: 20101,
@@ -37,9 +37,12 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
     Ok(())
 }
 
-pub fn compress_in_memory(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
-    // Read from the original bytes: the compressed output may no longer carry any EXIF.
-    let rotation_exif = orientation_exif_to_inject(in_file, parameters);
+pub fn compress_in_memory(
+    in_file: &[u8],
+    parameters: &CSParameters,
+    source_orientation: Option<u16>,
+) -> Result<Vec<u8>, CaesiumError> {
+    let rotation_exif = rotation_exif_to_preserve(in_file, parameters, source_orientation);
 
     let compressed = if parameters.width > 0 || parameters.height > 0 {
         let mut input = resize(in_file, parameters.width, parameters.height, Jpeg)?;

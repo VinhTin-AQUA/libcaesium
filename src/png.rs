@@ -5,7 +5,7 @@ use std::num::NonZeroU8;
 
 use crate::error::CaesiumError;
 use crate::resize::resize;
-use crate::utils::orientation_exif_to_inject;
+use crate::utils::rotation_exif_to_preserve;
 use crate::CSParameters;
 use image::ImageFormat;
 use imagequant::RGBA;
@@ -25,7 +25,7 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
         in_file = resize(&in_file, parameters.width, parameters.height, ImageFormat::Png)?;
     }
 
-    let optimized_png = compress_in_memory(&in_file, parameters)?;
+    let optimized_png = compress_in_memory(&in_file, parameters, None)?;
     let mut output_file_buffer = File::create(output_path).map_err(|e| CaesiumError {
         message: e.to_string(),
         code: 20202,
@@ -40,9 +40,12 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
     Ok(())
 }
 
-pub fn compress_in_memory(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
-    // Read from the original bytes: the compressed output may no longer carry any EXIF.
-    let rotation_exif = orientation_exif_to_inject(in_file, parameters);
+pub fn compress_in_memory(
+    in_file: &[u8],
+    parameters: &CSParameters,
+    source_orientation: Option<u16>,
+) -> Result<Vec<u8>, CaesiumError> {
+    let rotation_exif = rotation_exif_to_preserve(in_file, parameters, source_orientation);
 
     let compressed = if parameters.width > 0 || parameters.height > 0 {
         let input = resize(in_file, parameters.width, parameters.height, ImageFormat::Png)?;
@@ -152,7 +155,6 @@ fn lossless(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, Caesiu
         oxipng::Options::from_preset(optimization_level)
     };
 
-    // Must come after the preset, which otherwise replaces the whole options object.
     if !parameters.keep_metadata {
         oxipng_options.strip = oxipng::StripChunks::Safe;
     }
