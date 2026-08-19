@@ -247,6 +247,7 @@ typedef struct CCSParameters {
     uint32_t tiff_deflate_level;
     uint32_t width;
     uint32_t height;
+    bool keep_rotation;
 } CCSParameters;
 ```
 
@@ -266,6 +267,7 @@ typedef struct CCSParameters {
 - `tiff_compression`: TIFF compression (`0`=Uncompressed, `1`=Lzw, `2`=Deflate, `3`=Packbits)
 - `tiff_deflate_level`: TIFF deflate level (`1`=Fast, `6`=Balanced, `9`=Best)
 - `width`, `height`: resize output image (set to `0` to keep original size)
+- `keep_rotation`: allows to preserve the EXIF orientation tag regardless of `keep_metadata`. Every other metadata field is still stripped. No effect on GIF, which carries no orientation metadata.
 
 You can generate a C header file containing the options struct with the following command:
 `cbindgen --config cbindgen.toml --crate libcaesium --output include/libcaesium.h`

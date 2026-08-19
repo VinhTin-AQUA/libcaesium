@@ -5,6 +5,7 @@ use std::num::NonZeroU8;
 
 use crate::error::CaesiumError;
 use crate::resize::resize;
+use crate::utils::orientation_exif_to_inject;
 use crate::CSParameters;
 use image::ImageFormat;
 use imagequant::RGBA;
@@ -40,18 +41,26 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
 }
 
 pub fn compress_in_memory(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
-    if parameters.width > 0 || parameters.height > 0 {
+    // Read from the original bytes: the compressed output may no longer carry any EXIF.
+    let rotation_exif = orientation_exif_to_inject(in_file, parameters);
+
+    let compressed = if parameters.width > 0 || parameters.height > 0 {
         let input = resize(in_file, parameters.width, parameters.height, ImageFormat::Png)?;
 
         if parameters.png.optimize {
-            Ok(lossless(&input, parameters)?)
+            lossless(&input, parameters)?
         } else {
-            Ok(lossy(&input, parameters)?)
+            lossy(&input, parameters)?
         }
     } else if parameters.png.optimize {
-        Ok(lossless(in_file, parameters)?)
+        lossless(in_file, parameters)?
     } else {
-        Ok(lossy(in_file, parameters)?)
+        lossy(in_file, parameters)?
+    };
+
+    match rotation_exif {
+        Some(exif) => save_metadata(compressed, None, Some(exif)),
+        None => Ok(compressed),
     }
 }
 
@@ -127,22 +136,25 @@ fn lossy(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumEr
 }
 
 fn lossless(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
-    let mut oxipng_options = oxipng::Options::default();
-    if !parameters.keep_metadata {
-        oxipng_options.strip = oxipng::StripChunks::Safe;
-    }
-
-    if parameters.png.optimize && parameters.png.force_zopfli {
+    let mut oxipng_options = if parameters.png.optimize && parameters.png.force_zopfli {
         let mut iterations = 15;
         if in_file.len() > 2000000 {
             iterations = 5;
         }
-        oxipng_options.deflate = Zopfli {
-            iterations: NonZeroU8::new(iterations).unwrap(),
-        };
+        oxipng::Options {
+            deflate: Zopfli {
+                iterations: NonZeroU8::new(iterations).unwrap(),
+            },
+            ..Default::default()
+        }
     } else {
         let optimization_level = parameters.png.optimization_level.clamp(0, 6);
-        oxipng_options = oxipng::Options::from_preset(optimization_level);
+        oxipng::Options::from_preset(optimization_level)
+    };
+
+    // Must come after the preset, which otherwise replaces the whole options object.
+    if !parameters.keep_metadata {
+        oxipng_options.strip = oxipng::StripChunks::Safe;
     }
 
     let optimized_png = oxipng::optimize_from_memory(in_file, &oxipng_options).map_err(|e| CaesiumError {
@@ -167,8 +179,12 @@ fn save_metadata(image_buffer: Vec<u8>, iccp: Option<Bytes>, exif: Option<Bytes>
         message: e.to_string(),
         code: 20210,
     })?;
-    png.set_icc_profile(iccp);
-    png.set_exif(exif);
+    if iccp.is_some() {
+        png.set_icc_profile(iccp);
+    }
+    if exif.is_some() {
+        png.set_exif(exif);
+    }
     let mut output = Vec::new();
     png.encoder().write_to(&mut output).map_err(|e| CaesiumError {
         message: e.to_string(),

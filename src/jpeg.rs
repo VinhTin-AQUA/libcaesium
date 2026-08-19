@@ -1,6 +1,7 @@
 use crate::error::CaesiumError;
 use crate::parameters::ChromaSubsampling;
 use crate::resize::resize;
+use crate::utils::orientation_exif_to_inject;
 use crate::CSParameters;
 use bytes::Bytes;
 use image::ImageFormat::Jpeg;
@@ -37,38 +38,32 @@ pub fn compress(input_path: String, output_path: String, parameters: &CSParamete
 }
 
 pub fn compress_in_memory(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
-    if parameters.width > 0 || parameters.height > 0 {
+    // Read from the original bytes: the compressed output may no longer carry any EXIF.
+    let rotation_exif = orientation_exif_to_inject(in_file, parameters);
+
+    let compressed = if parameters.width > 0 || parameters.height > 0 {
         let mut input = resize(in_file, parameters.width, parameters.height, Jpeg)?;
         if parameters.keep_metadata || parameters.jpeg.preserve_icc {
             let (iccp, exif) = extract_metadata(in_file);
 
             if iccp.is_some() || exif.is_some() {
-                input = save_metadata(
-                    input,
-                    iccp,
-                    exif,
-                    parameters.jpeg.preserve_icc && !parameters.keep_metadata,
-                )?;
+                let exif = if parameters.keep_metadata { exif } else { None };
+                input = save_metadata(input, iccp, exif)?;
             }
         }
 
-        unsafe {
-            return catch_unwind(|| {
-                if parameters.jpeg.optimize {
-                    lossless(&input, parameters)
-                } else {
-                    lossy(&input, parameters)
-                }
-            })
-            .unwrap_or_else(|_| {
-                Err(CaesiumError {
-                    message: format!("Internal JPEG error: {}", JPEG_ERROR.load(Ordering::SeqCst)),
-                    code: 20104,
-                })
-            });
-        }
-    }
+        encode(&input, parameters)?
+    } else {
+        encode(in_file, parameters)?
+    };
 
+    match rotation_exif {
+        Some(exif) => save_metadata(compressed, None, Some(exif)),
+        None => Ok(compressed),
+    }
+}
+
+fn encode(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, CaesiumError> {
     unsafe {
         catch_unwind(|| {
             if parameters.jpeg.optimize {
@@ -260,19 +255,16 @@ fn extract_metadata(image: &[u8]) -> (Option<Bytes>, Option<Bytes>) {
 }
 
 //TODO if image is resized, change "PixelXDimension" and "PixelYDimension"
-fn save_metadata(
-    image_buffer: Vec<u8>,
-    iccp: Option<Bytes>,
-    exif: Option<Bytes>,
-    only_icc: bool,
-) -> Result<Vec<u8>, CaesiumError> {
+fn save_metadata(image_buffer: Vec<u8>, iccp: Option<Bytes>, exif: Option<Bytes>) -> Result<Vec<u8>, CaesiumError> {
     let mut dyn_image = PartsJpeg::from_bytes(Bytes::from(image_buffer)).map_err(|_| CaesiumError {
         message: "Failed to parse JPEG for metadata saving".to_string(),
         code: 20110,
     })?;
 
-    dyn_image.set_icc_profile(iccp);
-    if !only_icc {
+    if iccp.is_some() {
+        dyn_image.set_icc_profile(iccp);
+    }
+    if exif.is_some() {
         dyn_image.set_exif(exif);
     }
 

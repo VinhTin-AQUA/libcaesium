@@ -36,6 +36,7 @@ typedef struct CCSParameters {
   uint32_t tiff_deflate_level;
   uint32_t width;
   uint32_t height;
+  bool keep_rotation;
 } CCSParameters;
 
 typedef struct CByteArray {

@@ -4,7 +4,7 @@ use image::imageops::FilterType;
 use image::{DynamicImage, ImageReader};
 
 use crate::error::CaesiumError;
-use crate::utils::get_jpeg_orientation;
+use crate::utils::get_orientation;
 
 pub fn resize(
     image_buffer: &[u8],
@@ -14,7 +14,7 @@ pub fn resize(
 ) -> Result<Vec<u8>, CaesiumError> {
     let (mut desired_width, mut desired_height) = (width, height);
     if format == image::ImageFormat::Jpeg {
-        let orientation = get_jpeg_orientation(image_buffer);
+        let orientation = get_orientation(image_buffer);
         (desired_width, desired_height) = match orientation {
             5..=8 => (height, width),
             _ => (width, height),

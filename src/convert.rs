@@ -5,7 +5,7 @@ use image::{ColorType, DynamicImage, ImageFormat, ImageReader};
 use img_parts::{DynImage, ImageEXIF, ImageICC};
 
 use crate::error::CaesiumError;
-use crate::utils::{get_filetype_from_memory, get_jpeg_orientation};
+use crate::utils::{get_filetype_from_memory, get_orientation};
 use crate::{compress_in_memory, CSParameters, SupportedFileTypes};
 
 pub fn convert_in_memory(
@@ -41,7 +41,7 @@ pub fn convert_in_memory(
 
     if parameters.keep_metadata {
         if original_file_type == SupportedFileTypes::Jpeg {
-            let orientation = get_jpeg_orientation(in_file.as_slice());
+            let orientation = get_orientation(in_file.as_slice());
             original_image = match orientation {
                 2 => original_image.fliph(),
                 3 => original_image.rotate180(),

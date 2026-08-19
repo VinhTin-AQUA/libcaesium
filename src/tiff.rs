@@ -1,15 +1,19 @@
 use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read, Seek, Write};
 use std::panic;
 
+use image::DynamicImage;
 use image::ImageFormat::Tiff;
-use tiff::encoder::colortype::{RGB8, RGBA8};
-use tiff::encoder::compression::{Deflate, DeflateLevel, Lzw, Packbits, Uncompressed};
+use tiff::encoder::colortype::{ColorType, RGB8, RGBA8};
+use tiff::encoder::compression::{Compression, Deflate, DeflateLevel, Lzw, Packbits, Uncompressed};
 use tiff::encoder::TiffEncoder;
+use tiff::tags::Tag;
+use tiff::TiffResult;
 
 use crate::error::CaesiumError;
 use crate::parameters::TiffCompression;
 use crate::resize::resize_image;
+use crate::utils::get_orientation;
 use crate::{CSParameters, TiffDeflateLevel};
 
 pub fn compress(input_path: String, output_path: String, parameters: &CSParameters) -> Result<(), CaesiumError> {
@@ -62,6 +66,13 @@ pub fn compress_in_memory(in_file: &Vec<u8>, parameters: &CSParameters) -> Resul
         image = resize_image(image, parameters.width, parameters.height);
     }
 
+    // Re-encoding drops every source tag, so orientation has to be carried over by hand.
+    // Unlike the other formats there is no `keep_metadata` path to defer to here.
+    let orientation = match (parameters.keep_rotation, get_orientation(in_file)) {
+        (true, o) if o > 1 => Some(o as u16),
+        _ => None,
+    };
+
     let color_type = image.color();
     let output_buff = vec![];
     let mut output_stream = Cursor::new(output_buff);
@@ -73,18 +84,8 @@ pub fn compress_in_memory(in_file: &Vec<u8>, parameters: &CSParameters) -> Resul
     macro_rules! write_with_compression {
         ($compression:expr) => {
             match color_type {
-                image::ColorType::Rgb8 => encoder.write_image_with_compression::<RGB8, _>(
-                    image.width(),
-                    image.height(),
-                    $compression,
-                    image.as_bytes(),
-                ),
-                image::ColorType::Rgba8 => encoder.write_image_with_compression::<RGBA8, _>(
-                    image.width(),
-                    image.height(),
-                    $compression,
-                    image.as_bytes(),
-                ),
+                image::ColorType::Rgb8 => write_image::<_, RGB8, _>(&mut encoder, &image, $compression, orientation),
+                image::ColorType::Rgba8 => write_image::<_, RGBA8, _>(&mut encoder, &image, $compression, orientation),
                 _ => {
                     return Err(CaesiumError {
                         message: format!("Unsupported TIFF color type ({color_type:?})"),
@@ -111,6 +112,24 @@ pub fn compress_in_memory(in_file: &Vec<u8>, parameters: &CSParameters) -> Resul
             code: 20507,
         }),
     }
+}
+
+/// Encodes the image, optionally stamping the baseline `Orientation` tag (0x0112) into the
+/// IFD. Uses the two-step encoder because the one-shot `write_image_with_compression` leaves
+/// no place to add a tag.
+fn write_image<W: Write + Seek, C: ColorType<Inner = u8>, D: Compression>(
+    encoder: &mut TiffEncoder<W>,
+    image: &DynamicImage,
+    compression: D,
+    orientation: Option<u16>,
+) -> TiffResult<()> {
+    let mut image_encoder = encoder.new_image_with_compression::<C, D>(image.width(), image.height(), compression)?;
+
+    if let Some(orientation) = orientation {
+        image_encoder.encoder().write_tag(Tag::Orientation, orientation)?;
+    }
+
+    image_encoder.write_data(image.as_bytes())
 }
 
 fn parse_deflate_level(level: TiffDeflateLevel) -> DeflateLevel {

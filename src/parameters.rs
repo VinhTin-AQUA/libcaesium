@@ -114,6 +114,7 @@ pub struct TiffParameters {
 /// - `webp`: WebP compression parameters
 /// - `tiff`: TIFF compression parameters
 /// - `keep_metadata`: Whether to keep metadata in the compressed image
+/// - `keep_rotation`: Always preserve the EXIF orientation tag, regardless of `keep_metadata`
 /// - `width`: Width of the output image
 /// - `height`: Height of the output image
 #[derive(Copy, Clone)]
@@ -124,6 +125,7 @@ pub struct CSParameters {
     pub webp: WebPParameters,
     pub tiff: TiffParameters,
     pub keep_metadata: bool,
+    pub keep_rotation: bool,
     pub width: u32,
     pub height: u32,
 }
@@ -170,6 +172,7 @@ fn initialize_parameters() -> CSParameters {
         webp,
         tiff,
         keep_metadata: false,
+        keep_rotation: false,
         width: 0,
         height: 0,
     }

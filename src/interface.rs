@@ -32,6 +32,7 @@ pub struct CCSParameters {
     pub tiff_deflate_level: u32,
     pub width: u32,
     pub height: u32,
+    pub keep_rotation: bool,
 }
 
 #[repr(C)]
@@ -194,6 +195,7 @@ fn c_set_parameters(params: CCSParameters) -> CSParameters {
     parameters.png.quality = params.png_quality;
     parameters.png.optimize = params.png_optimize;
     parameters.keep_metadata = params.keep_metadata;
+    parameters.keep_rotation = params.keep_rotation;
     parameters.png.optimization_level = params.png_optimization_level as u8;
     parameters.png.force_zopfli = params.png_force_zopfli;
     parameters.gif.quality = params.gif_quality;
