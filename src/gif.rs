@@ -40,10 +40,15 @@ fn lossy(in_file: &Vec<u8>, parameters: &CSParameters) -> Result<Vec<u8>, Caesiu
         message: e.to_string(),
         code: 20404,
     })?;
+    let repeat = match decoder.repeat() {
+        gif::Repeat::Finite(n) => gifski::Repeat::Finite(n),
+        gif::Repeat::Infinite => gifski::Repeat::Infinite,
+    };
+
     let mut screen = gif_dispose::Screen::new_decoder(&decoder);
     let mut settings = Settings {
         quality: parameters.gif.quality as u8,
-        repeat: decoder.repeat(),
+        repeat,
         ..Default::default()
     };
     let old_w = decoder.width() as u32;
@@ -87,7 +92,7 @@ fn lossy(in_file: &Vec<u8>, parameters: &CSParameters) -> Result<Vec<u8>, Caesiu
                     let resized = image::imageops::resize(&img, new_w, new_h, image::imageops::FilterType::Lanczos3);
 
                     let mut new_buf = Vec::with_capacity((new_w * new_h) as usize);
-                    for chunk in resized.chunks_exact(4) {
+                    for chunk in resized.as_chunks::<4>().0 {
                         new_buf.push(gif_dispose::RGBA8 {
                             r: chunk[0],
                             g: chunk[1],

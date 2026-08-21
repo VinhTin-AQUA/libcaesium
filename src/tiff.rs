@@ -5,8 +5,8 @@ use std::panic;
 use image::DynamicImage;
 use image::ImageFormat::Tiff;
 use tiff::encoder::colortype::{ColorType, RGB8, RGBA8};
-use tiff::encoder::compression::{Compression, Deflate, DeflateLevel, Lzw, Packbits, Uncompressed};
-use tiff::encoder::TiffEncoder;
+use tiff::encoder::compression::DeflateLevel;
+use tiff::encoder::{Compression, TiffEncoder};
 use tiff::tags::Tag;
 use tiff::TiffResult;
 
@@ -75,33 +75,29 @@ pub fn compress_in_memory(
     let color_type = image.color();
     let output_buff = vec![];
     let mut output_stream = Cursor::new(output_buff);
-    let mut encoder = TiffEncoder::new(&mut output_stream).map_err(|e| CaesiumError {
-        message: e.to_string(),
-        code: 20505,
-    })?;
+    let compression = match parameters.tiff.algorithm {
+        TiffCompression::Deflate => Compression::Deflate(parse_deflate_level(parameters.tiff.deflate_level)),
+        TiffCompression::Lzw => Compression::Lzw,
+        TiffCompression::Packbits => Compression::Packbits,
+        TiffCompression::Uncompressed => Compression::Uncompressed,
+    };
 
-    macro_rules! write_with_compression {
-        ($compression:expr) => {
-            match color_type {
-                image::ColorType::Rgb8 => write_image::<_, RGB8, _>(&mut encoder, &image, $compression, orientation),
-                image::ColorType::Rgba8 => write_image::<_, RGBA8, _>(&mut encoder, &image, $compression, orientation),
-                _ => {
-                    return Err(CaesiumError {
-                        message: format!("Unsupported TIFF color type ({color_type:?})"),
-                        code: 20506,
-                    });
-                }
-            }
-        };
-    }
+    let mut encoder = TiffEncoder::new(&mut output_stream)
+        .map_err(|e| CaesiumError {
+            message: e.to_string(),
+            code: 20505,
+        })?
+        .with_compression(compression);
 
-    let compression_result = match parameters.tiff.algorithm {
-        TiffCompression::Deflate => {
-            write_with_compression!(Deflate::with_level(parse_deflate_level(parameters.tiff.deflate_level)))
+    let compression_result = match color_type {
+        image::ColorType::Rgb8 => write_image::<_, RGB8>(&mut encoder, &image, orientation),
+        image::ColorType::Rgba8 => write_image::<_, RGBA8>(&mut encoder, &image, orientation),
+        _ => {
+            return Err(CaesiumError {
+                message: format!("Unsupported TIFF color type ({color_type:?})"),
+                code: 20506,
+            });
         }
-        TiffCompression::Lzw => write_with_compression!(Lzw),
-        TiffCompression::Packbits => write_with_compression!(Packbits),
-        TiffCompression::Uncompressed => write_with_compression!(Uncompressed),
     };
 
     match compression_result {
@@ -113,13 +109,12 @@ pub fn compress_in_memory(
     }
 }
 
-fn write_image<W: Write + Seek, C: ColorType<Inner = u8>, D: Compression>(
+fn write_image<W: Write + Seek, C: ColorType<Inner = u8>>(
     encoder: &mut TiffEncoder<W>,
     image: &DynamicImage,
-    compression: D,
     orientation: Option<u16>,
 ) -> TiffResult<()> {
-    let mut image_encoder = encoder.new_image_with_compression::<C, D>(image.width(), image.height(), compression)?;
+    let mut image_encoder = encoder.new_image::<C>(image.width(), image.height())?;
 
     if let Some(orientation) = orientation {
         image_encoder.encoder().write_tag(Tag::Orientation, orientation)?;

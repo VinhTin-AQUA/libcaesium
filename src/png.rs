@@ -1,7 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::io::Write;
-use std::num::NonZeroU8;
+use std::num::NonZeroU64;
 
 use crate::error::CaesiumError;
 use crate::resize::resize;
@@ -9,7 +9,6 @@ use crate::utils::rotation_exif_to_preserve;
 use crate::CSParameters;
 use image::ImageFormat;
 use imagequant::RGBA;
-use oxipng::Deflaters::Zopfli;
 
 use bytes::Bytes;
 use img_parts::png::Png as PartsPng;
@@ -144,10 +143,12 @@ fn lossless(in_file: &[u8], parameters: &CSParameters) -> Result<Vec<u8>, Caesiu
         if in_file.len() > 2000000 {
             iterations = 5;
         }
+        let zopfli_options = oxipng::ZopfliOptions {
+            iteration_count: NonZeroU64::new(iterations).unwrap(),
+            ..Default::default()
+        };
         oxipng::Options {
-            deflate: Zopfli {
-                iterations: NonZeroU8::new(iterations).unwrap(),
-            },
+            deflater: oxipng::Deflater::Zopfli(zopfli_options),
             ..Default::default()
         }
     } else {

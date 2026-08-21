@@ -175,7 +175,7 @@ pub fn compress_to_size_in_memory(
                 });
             }
 
-            let compressed_file = match file_type {
+            let compressed_file: Vec<u8> = match file_type {
                 #[cfg(feature = "jpg")]
                 SupportedFileTypes::Jpeg => {
                     parameters.jpeg.quality = quality;
