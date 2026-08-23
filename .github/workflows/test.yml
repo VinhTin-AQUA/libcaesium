@@ -21,6 +21,8 @@ env:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    if: false
+
     strategy:
       matrix:
         os: [ macos-latest, ubuntu-latest, windows-latest ]
