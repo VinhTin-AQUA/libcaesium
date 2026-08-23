@@ -38,9 +38,16 @@ jobs:
             - name: install Rust stable
               uses: dtolnay/rust-toolchain@stable
               with:
+                  toolchain: stable
                   targets: x86_64-pc-windows-gnu,x86_64-unknown-linux-gnu,aarch64-linux-android
+                  override: true
 
-            - name: Build app bundle
+            - name: Install Mingw-w64
+              run: |
+                sudo apt-get update
+                sudo apt-get install -y mingw-w64
+
+            - name: Build binaries
               run: |
                   chmod +x ./build.sh
                   ./build.sh
