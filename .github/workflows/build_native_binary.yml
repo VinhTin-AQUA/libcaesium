@@ -47,6 +47,17 @@ jobs:
                 sudo apt-get update
                 sudo apt-get install -y mingw-w64
 
+            - name: Set environment variables for Android
+              run: |
+                echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+                echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.11902837" >> $GITHUB_ENV
+                echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.11902837" >> $GITHUB_ENV
+                
+                # Set compiler for Android
+                echo "CC_aarch64_linux_android=$ANDROID_HOME/ndk/27.0.11902837/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> $GITHUB_ENV
+                echo "AR_aarch64_linux_android=$ANDROID_HOME/ndk/27.0.11902837/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> $GITHUB_ENV
+                echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$ANDROID_HOME/ndk/27.0.11902837/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang" >> $GITHUB_ENV
+
             - name: Build binaries
               run: |
                   chmod +x ./build.sh
